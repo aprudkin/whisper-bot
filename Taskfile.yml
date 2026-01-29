@@ -1,31 +1,54 @@
+# https://taskfile.dev
 version: '3'
 
+dotenv: ['.env']
+
 vars:
+  APP_NAME: whisper-bot
+  DOCKER_CONTAINER: whisper-bot
   PID_FILE: "{{.ROOT_DIR}}/.bot.pid"
   LOG_FILE: "{{.ROOT_DIR}}/bot.log"
+  SSH_KEY: '{{.SSH_KEY | default "~/.ssh/luk"}}'
+  APP_SERVER: 'root@{{.APP_SERVER_IP | default "143.110.233.82"}}'
+  REMOTE_DIR: '/root/whisper-bot'
+
+env:
+  COMPOSE_DOCKER_CLI_BUILD: 1
+  DOCKER_BUILDKIT: 1
 
 tasks:
+  # ============================================
+  # HELP
+  # ============================================
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list-all
+
+  # ============================================
+  # LOCAL DEVELOPMENT
+  # ============================================
   start:
-    desc: Start whisper-bot in background
+    desc: Start bot in background (local)
     cmds:
       - "{{.ROOT_DIR}}/scripts/start.sh"
     silent: true
 
   stop:
-    desc: Stop whisper-bot
+    desc: Stop bot (local)
     cmds:
       - "{{.ROOT_DIR}}/scripts/stop.sh"
     silent: true
 
   restart:
-    desc: Restart whisper-bot
+    desc: Restart bot (local)
     cmds:
       - task: stop
       - sleep 1
       - task: start
 
   status:
-    desc: Show bot status
+    desc: Show bot status (local)
     cmds:
       - |
         if [ -f {{.PID_FILE}} ] && /bin/kill -0 $(cat {{.PID_FILE}}) 2>/dev/null; then
@@ -36,7 +59,7 @@ tasks:
     silent: true
 
   logs:
-    desc: Tail bot logs
+    desc: Tail bot logs (local)
     cmds:
       - tail -f {{.LOG_FILE}}
 
@@ -51,16 +74,144 @@ tasks:
       - echo "" > {{.LOG_FILE}}
       - echo "Logs cleared"
 
+  # ============================================
+  # DOCKER COMMANDS
+  # ============================================
+  docker:up:
+    desc: Start Docker container
+    cmds:
+      - docker compose up -d
+
+  docker:down:
+    desc: Stop Docker container
+    cmds:
+      - docker compose down
+
+  docker:rebuild:
+    desc: Rebuild and restart container (no cache)
+    cmds:
+      - docker compose down
+      - docker compose build --no-cache
+      - docker compose up -d
+
+  docker:build:
+    desc: Build Docker image
+    cmds:
+      - docker compose build
+
+  docker:logs:
+    desc: Show container logs (follow mode)
+    cmds:
+      - docker compose logs -f --tail=100
+
+  docker:restart:
+    desc: Restart container without rebuild
+    cmds:
+      - docker compose restart
+
+  docker:ps:
+    desc: Show running containers
+    cmds:
+      - docker compose ps
+
+  docker:shell:
+    desc: Open shell in running container
+    cmds:
+      - docker compose exec {{.DOCKER_CONTAINER}} /bin/bash
+
+  docker:clean:
+    desc: Remove stopped containers and dangling images
+    cmds:
+      - docker compose down --volumes --remove-orphans
+      - docker image prune -f
+
+  # ============================================
+  # DEPLOYMENT
+  # ============================================
+  deploy:
+    desc: Deploy to production server
+    cmds:
+      - echo "Deploying to {{.APP_SERVER}}..."
+      - ssh -i {{.SSH_KEY}} {{.APP_SERVER}} "cd {{.REMOTE_DIR}} && git pull && docker compose build --no-cache && docker compose up -d"
+      - echo "Deployment complete!"
+
+  deploy:quick:
+    desc: Quick deploy (pull and restart, no rebuild)
+    cmds:
+      - ssh -i {{.SSH_KEY}} {{.APP_SERVER}} "cd {{.REMOTE_DIR}} && git pull && docker compose restart"
+
+  deploy:status:
+    desc: Check production server status
+    cmds:
+      - ssh -i {{.SSH_KEY}} {{.APP_SERVER}} "cd {{.REMOTE_DIR}} && docker compose ps && echo '' && docker compose logs --tail=20"
+
+  deploy:logs:
+    desc: Show production logs (follow mode)
+    cmds:
+      - ssh -i {{.SSH_KEY}} {{.APP_SERVER}} "cd {{.REMOTE_DIR}} && docker compose logs -f --tail=100"
+
+  deploy:shell:
+    desc: SSH into production server
+    cmds:
+      - ssh -i {{.SSH_KEY}} {{.APP_SERVER}}
+
+  deploy:setup:
+    desc: Initial setup on production server
+    cmds:
+      - echo "Cloning repository on server..."
+      - ssh -i {{.SSH_KEY}} {{.APP_SERVER}} "git clone https://github.com/aprudkin/whisper-bot.git {{.REMOTE_DIR}} || echo 'Already exists'"
+      - echo ""
+      - echo "Next steps:"
+      - echo "1. Copy .env to server:"
+      - echo "   scp -i {{.SSH_KEY}} .env {{.APP_SERVER}}:{{.REMOTE_DIR}}/"
+      - echo "2. Start the bot:"
+      - echo "   task deploy"
+
+  # ============================================
+  # SETUP & CLEANUP
+  # ============================================
   install:
-    desc: Install dependencies
+    desc: Install dependencies (local)
     cmds:
       - uv venv
       - uv pip install -e .
 
   env:
-    desc: Create .env from example
+    desc: Create .env from template
     cmds:
       - cp .env.example .env
-      - echo "Created .env - edit it with your BOT_TOKEN"
+      - echo "Created .env - edit it with your credentials"
     status:
       - test -f .env
+
+  clean:
+    desc: Remove cache and temporary files
+    cmds:
+      - rm -rf __pycache__ .pytest_cache .mypy_cache
+      - find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+      - find . -name "*.pyc" -delete 2>/dev/null || true
+      - echo "Cleaned!"
+
+  clean:all:
+    desc: Deep clean (includes Docker)
+    cmds:
+      - task: clean
+      - task: docker:clean
+
+  # ============================================
+  # GIT HELPERS
+  # ============================================
+  git:status:
+    desc: Show git status
+    cmds:
+      - git status
+
+  git:push:
+    desc: Push to GitHub
+    cmds:
+      - git push
+
+  git:log:
+    desc: Show recent commits
+    cmds:
+      - git log --oneline -10
