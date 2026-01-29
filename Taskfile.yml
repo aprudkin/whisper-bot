@@ -1,0 +1,66 @@
+version: '3'
+
+vars:
+  PID_FILE: "{{.ROOT_DIR}}/.bot.pid"
+  LOG_FILE: "{{.ROOT_DIR}}/bot.log"
+
+tasks:
+  start:
+    desc: Start whisper-bot in background
+    cmds:
+      - "{{.ROOT_DIR}}/scripts/start.sh"
+    silent: true
+
+  stop:
+    desc: Stop whisper-bot
+    cmds:
+      - "{{.ROOT_DIR}}/scripts/stop.sh"
+    silent: true
+
+  restart:
+    desc: Restart whisper-bot
+    cmds:
+      - task: stop
+      - sleep 1
+      - task: start
+
+  status:
+    desc: Show bot status
+    cmds:
+      - |
+        if [ -f {{.PID_FILE}} ] && /bin/kill -0 $(cat {{.PID_FILE}}) 2>/dev/null; then
+          echo "✓ Running (PID $(cat {{.PID_FILE}}))"
+        else
+          echo "✗ Not running"
+        fi
+    silent: true
+
+  logs:
+    desc: Tail bot logs
+    cmds:
+      - tail -f {{.LOG_FILE}}
+
+  logs:last:
+    desc: Show last 50 lines of logs
+    cmds:
+      - tail -50 {{.LOG_FILE}}
+
+  logs:clear:
+    desc: Clear log file
+    cmds:
+      - echo "" > {{.LOG_FILE}}
+      - echo "Logs cleared"
+
+  install:
+    desc: Install dependencies
+    cmds:
+      - uv venv
+      - uv pip install -e .
+
+  env:
+    desc: Create .env from example
+    cmds:
+      - cp .env.example .env
+      - echo "Created .env - edit it with your BOT_TOKEN"
+    status:
+      - test -f .env
