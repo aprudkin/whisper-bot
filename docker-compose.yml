@@ -1,0 +1,13 @@
+services:
+    whisper-bot:
+        container_name: whisper-bot
+        restart: always
+        stop_grace_period: 10s
+        build:
+            context: .
+            dockerfile: Dockerfile
+        volumes:
+            - ./.env:/code/.env:ro
+            - ./storage/logs:/code/logs
+        environment:
+            - TRANSCRIPTION_BACKEND=groq

@@ -2,9 +2,11 @@
 
 ## Overview
 
-Telegram-бот для автоматической транскрипции голосовых сообщений в групповых чатах. Использует faster-whisper (CTranslate2) для распознавания речи.
+Telegram-бот для автоматической транскрипции голосовых сообщений в групповых чатах. Поддерживает два бэкенда:
+- **Groq API** (рекомендуется) — whisper-large-v3, ~10x быстрее, бесплатно
+- **Local** — faster-whisper (CTranslate2), работает офлайн
 
-**Важно:** MPS (Apple Silicon GPU) **не поддерживается** — faster-whisper работает только на CPU/CUDA. Для GPU на Mac нужна миграция на openai-whisper или Groq API.
+**Важно:** MPS (Apple Silicon GPU) **не поддерживается** локальным бэкендом — faster-whisper работает только на CPU/CUDA.
 
 ## Architecture
 
@@ -20,10 +22,11 @@ whisper-bot/
 │   ├── start.sh                # Background start with PID tracking
 │   └── stop.sh                 # Graceful stop via SIGTERM
 ├── docs/
-│   └── GROQ_MIGRATION.md       # Future: Groq API migration plan
+│   └── GROQ_MIGRATION.md       # Groq API migration documentation
 └── src/whisper_bot/
     ├── __init__.py             # Package metadata (__version__)
     ├── config.py               # Configuration loading from .env
+    ├── groq_transcribe.py      # Groq API client for transcription
     └── bot.py                  # Main bot logic (handlers, transcription)
 ```
 
@@ -35,14 +38,22 @@ whisper-bot/
 - **Handlers**:
   - `handle_voice()` — processes voice messages (`.oga`)
   - `handle_video_note()` — processes round videos (`.mp4`)
-- **Flow**: Check allowed chat → Download → Transcribe (thread pool) → Reply → Cleanup
+- **Transcription**: `_transcribe_with_fallback()` — tries Groq first (if configured), falls back to local on rate limit (429)
+- **Flow**: Check allowed chat → Download → Transcribe (Groq/local) → Reply → Cleanup
+
+### groq_transcribe.py
+- Async Groq API client using httpx
+- Uses `whisper-large-v3` model for best quality
+- Supports multiple audio formats (ogg, mp4, mp3, wav, m4a)
 
 ### config.py
 - Loads from `.env` via python-dotenv
 - `Config` dataclass with fields:
   - `bot_token: str` — Telegram bot token (required)
   - `allowed_chats: frozenset[int]` — Whitelist of chat IDs (required)
-  - `whisper_model: str` — Model size (default: `medium`)
+  - `groq_api_key: str | None` — Groq API key (required if backend=groq)
+  - `transcription_backend: str` — "local" or "groq" (default: local)
+  - `whisper_model: str` — Model size for local backend (default: `medium`)
   - `whisper_language: str` — Language code (default: `ru`)
   - `whisper_device: str | None` — Device override (default: auto-detect)
   - `temp_dir: Path` — Temp files location (default: `/tmp/whisper-bot`)
@@ -54,6 +65,7 @@ whisper-bot/
 dependencies = [
     "aiogram>=3.0",           # Telegram Bot API (async)
     "python-dotenv>=1.0",     # .env loading
+    "httpx>=0.24",            # Async HTTP client for Groq API
     "whisper-transcribe",     # Local package from ../whisper-cli
 ]
 ```
@@ -82,9 +94,11 @@ dependencies = [
 |----------|----------|---------|-------------|
 | `BOT_TOKEN` | Yes | — | Telegram bot token from @BotFather |
 | `ALLOWED_CHATS` | Yes | — | Comma-separated chat IDs (e.g., `-1001234567890,-1009876543210`) |
-| `WHISPER_MODEL` | No | `medium` | Model: tiny/base/small/medium/large/large-v2/large-v3 |
+| `TRANSCRIPTION_BACKEND` | No | `local` | Backend: `local` (faster-whisper) or `groq` (Groq API) |
+| `GROQ_API_KEY` | If groq | — | Groq API key from console.groq.com |
+| `WHISPER_MODEL` | No | `medium` | Model for local backend: tiny/base/small/medium/large/large-v2/large-v3 |
 | `WHISPER_LANGUAGE` | No | `ru` | Recognition language |
-| `WHISPER_DEVICE` | No | cpu | Device: cpu/cuda (MPS not supported by faster-whisper) |
+| `WHISPER_DEVICE` | No | cpu | Device for local: cpu/cuda (MPS not supported) |
 
 ## Whisper Models Comparison
 
@@ -108,10 +122,20 @@ dependencies = [
 - Security: bot only responds in chats listed in `ALLOWED_CHATS`
 - **MPS not available** — faster-whisper/CTranslate2 doesn't support Apple Silicon GPU
 
-## Future: Groq API Migration
+## Groq API (Recommended)
 
-See `docs/GROQ_MIGRATION.md` for cloud-based alternative with:
-- ~10x faster inference
-- Better quality (large-v3)
-- No local compute requirements
-- Free tier: 20 req/min, 14,400/day
+Бот поддерживает Groq API как основной бэкенд транскрипции:
+
+| Параметр | Local (faster-whisper) | Groq API |
+|----------|------------------------|----------|
+| Скорость | ~15-30 сек | **< 2 сек** |
+| Модель | medium | **large-v3** (лучше качество) |
+| Стоимость | Бесплатно (локально) | Бесплатно (20 req/min) |
+| Требования | RAM, CPU | Только интернет |
+
+**Лимиты Groq (бесплатный план):**
+- 20 запросов/минуту
+- 14,400 запросов/день
+- 25 MB макс. размер файла
+
+При превышении лимита бот автоматически переключается на локальный whisper.

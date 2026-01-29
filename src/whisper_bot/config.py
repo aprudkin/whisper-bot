@@ -8,19 +8,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-VALID_MODELS = frozenset({"tiny", "base", "small", "medium", "large", "large-v2", "large-v3"})
-VALID_DEVICES = frozenset({"cpu", "cuda"})
-
 
 @dataclass
 class Config:
     """Bot configuration."""
 
     bot_token: str
+    groq_api_key: str
     allowed_chats: frozenset[int]
-    whisper_model: str = "medium"
     whisper_language: str = "ru"
-    whisper_device: str | None = None  # None = auto-detect, "cpu", "cuda"
+    enable_postprocess: bool = False  # LLM-based punctuation and spelling correction
     temp_dir: Path = Path("/tmp/whisper-bot")
 
     def __post_init__(self) -> None:
@@ -29,16 +26,6 @@ class Config:
             raise ValueError(
                 "ALLOWED_CHATS environment variable is required. "
                 "Specify comma-separated chat IDs (e.g., -1001234567890,-1009876543210)"
-            )
-        if self.whisper_model not in VALID_MODELS:
-            raise ValueError(
-                f"Invalid whisper_model '{self.whisper_model}'. "
-                f"Valid options: {', '.join(sorted(VALID_MODELS))}"
-            )
-        if self.whisper_device and self.whisper_device not in VALID_DEVICES:
-            raise ValueError(
-                f"Invalid whisper_device '{self.whisper_device}'. "
-                f"Valid options: {', '.join(sorted(VALID_DEVICES))}"
             )
 
     def is_chat_allowed(self, chat_id: int) -> bool:
@@ -52,9 +39,9 @@ class Config:
         if not token:
             raise ValueError("BOT_TOKEN environment variable is required")
 
-        device = os.getenv("WHISPER_DEVICE")
-        if device == "auto":
-            device = None
+        groq_key = os.getenv("GROQ_API_KEY")
+        if not groq_key:
+            raise ValueError("GROQ_API_KEY environment variable is required")
 
         # Parse allowed chats from comma-separated list
         allowed_chats_str = os.getenv("ALLOWED_CHATS", "")
@@ -73,10 +60,10 @@ class Config:
 
         return cls(
             bot_token=token,
+            groq_api_key=groq_key,
             allowed_chats=allowed_chats,
-            whisper_model=os.getenv("WHISPER_MODEL", "medium"),
             whisper_language=os.getenv("WHISPER_LANGUAGE", "ru"),
-            whisper_device=device,
+            enable_postprocess=os.getenv("ENABLE_POSTPROCESS", "").lower() in ("true", "1", "yes"),
         )
 
 

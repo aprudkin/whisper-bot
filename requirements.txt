@@ -1,0 +1,8 @@
+# Core dependencies
+aiogram>=3.0
+python-dotenv>=1.0
+httpx>=0.24
+
+# For local whisper fallback (optional, makes image larger)
+# Uncomment if you need local transcription:
+# faster-whisper>=1.0.0

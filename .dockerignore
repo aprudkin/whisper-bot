@@ -1,0 +1,50 @@
+# Git
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+*.egg
+build/
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local files
+.env
+.env.*
+!.env.example
+*.log
+.bot.pid
+bot.log
+
+# Docker (don't copy these into image)
+Dockerfile
+docker-compose*.yml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+docs/
+scripts/
+tests/
+*.md
+!README.md
+storage/
+backups/
+.claude/
+.osgrep/
